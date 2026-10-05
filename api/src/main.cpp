@@ -32,6 +32,48 @@ int main() {
         res.set_content(json(hosts).dump(), "application/json");
     });
 
+        svr.Get("/metrics", [](const httplib::Request& req, httplib::Response& res) {
+        if (!req.has_param("host")) {
+            res.status = 400;
+            res.set_content(R"({"error":"host is required"})", "application/json");
+            return;
+        }
+        std::string host = req.get_param_value("host");
+        std::string from = req.has_param("from") ? req.get_param_value("from") : "";
+        std::string to = req.has_param("to") ? req.get_param_value("to") : "";
+
+        int limit = 100;
+        if (req.has_param("limit")) {
+            try {
+                limit = std::stoi(req.get_param_value("limit"));
+            } catch (...) {
+                res.status = 400;
+                res.set_content(R"({"error":"limit must be a number"})", "application/json");
+                return;
+            }
+        }
+        if (limit < 1) limit = 1;
+        if (limit > 1000) limit = 1000;
+
+        std::vector<MetricRow> rows;
+        std::string error;
+        if (!queryMetrics(host, from, to, limit, rows, error)) {
+            std::cerr << "DB error: " << error << "\n";
+            res.status = 500;
+            res.set_content(R"({"error":"database error"})", "application/json");
+            return;
+        }
+
+        json arr = json::array();
+        for (const auto& r : rows) {
+            arr.push_back({{"ts", r.ts},
+                           {"cpu_percent", r.cpu},
+                           {"ram_used_mb", r.ramUsed},
+                           {"ram_total_mb", r.ramTotal}});
+        }
+        res.set_content(arr.dump(), "application/json");
+    });
+
     svr.Post("/ingest", [](const httplib::Request& req, httplib::Response& res) {
         json body = json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.is_object()) {

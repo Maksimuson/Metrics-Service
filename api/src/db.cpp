@@ -106,4 +106,56 @@ bool listHosts(std::vector<std::string>& out, std::string& error)
     mysql_close(conn);
     return true;
 }
+
+bool queryMetrics(const std::string& host,
+                  const std::string& from, const std::string& to,
+                  int limit,
+                  std::vector<MetricRow>& out, std::string& error) {
+    MYSQL* conn = connectDb(error);
+    if (!conn) return false;
+
+    // Экранируем пользовательский текст, чтобы он не мог изменить смысл запроса
+    auto esc = [&](const std::string& s) {
+        std::string buf(s.size() * 2 + 1, '\0');
+        unsigned long n = mysql_real_escape_string(
+            conn, buf.data(), s.c_str(), s.size());
+        buf.resize(n);
+        return buf;
+    };
+
+    std::string sql =
+        "SELECT m.ts, m.cpu_percent, m.ram_used_mb, m.ram_total_mb "
+        "FROM metrics m JOIN hosts h ON h.id = m.host_id "
+        "WHERE h.name = '" + esc(host) + "'";
+    if (!from.empty()) sql += " AND m.ts >= '" + esc(from) + "'";
+    if (!to.empty())   sql += " AND m.ts <= '" + esc(to) + "'";
+    sql += " ORDER BY m.ts DESC LIMIT " + std::to_string(limit);
+
+    if (mysql_query(conn, sql.c_str()) != 0) {
+        error = mysql_error(conn);
+        mysql_close(conn);
+        return false;
+    }
+
+    MYSQL_RES* result = mysql_store_result(conn);
+    if (!result) {
+        error = mysql_error(conn);
+        mysql_close(conn);
+        return false;
+    }
+
+    MYSQL_ROW row;
+    while ((row = mysql_fetch_row(result))) {
+        MetricRow m;
+        m.ts = row[0];
+        m.cpu = std::stod(row[1]);
+        m.ramUsed = std::stoll(row[2]);
+        m.ramTotal = std::stoll(row[3]);
+        out.push_back(m);
+    }
+
+    mysql_free_result(result);
+    mysql_close(conn);
+    return true;
+}
     
