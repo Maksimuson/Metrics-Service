@@ -1,3 +1,4 @@
+#include <mysql/mysql.h>
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <iostream>
@@ -6,6 +7,22 @@
 using json = nlohmann::json;
 
 int main() {
+
+    MYSQL *conn = mysql_init(nullptr);
+    if (!mysql_real_connect(conn, "127.0.0.1", "app", "apppass",
+         "metrics", 3306, nullptr, 0)) {
+        std::cout << "DB connection failed: " << mysql_error(conn) << "\n";
+        return 1;
+    }
+    std::cout<< "Connected to MySQL " << mysql_get_server_info(conn) << "\n";
+
+    if (mysql_query(conn, "SELECT COUNT(*) FROM hosts") == 0) {
+        MYSQL_RES* result = mysql_store_result(conn);
+        MYSQL_ROW row = mysql_fetch_row(result);
+        std::cout << "hosts in DB: " << row[0] << "\n";
+        mysql_free_result(result);
+    }
+
     httplib::Server svr;
 
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) 
