@@ -1,37 +1,26 @@
-#include <mysql/mysql.h>
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <string>
+#include "db.hpp"
 
 using json = nlohmann::json;
 
 int main() {
-
-    MYSQL *conn = mysql_init(nullptr);
-    if (!mysql_real_connect(conn, "127.0.0.1", "app", "apppass",
-         "metrics", 3306, nullptr, 0)) {
-        std::cout << "DB connection failed: " << mysql_error(conn) << "\n";
+    std::string dbError;
+    if (!dbCheck(dbError)) {
+        std::cerr << "DB connection failed: " << dbError << "\n";
         return 1;
     }
-    std::cout<< "Connected to MySQL " << mysql_get_server_info(conn) << "\n";
-
-    if (mysql_query(conn, "SELECT COUNT(*) FROM hosts") == 0) {
-        MYSQL_RES* result = mysql_store_result(conn);
-        MYSQL_ROW row = mysql_fetch_row(result);
-        std::cout << "hosts in DB: " << row[0] << "\n";
-        mysql_free_result(result);
-    }
+    std::cout << "Connected to MySQL\n";
 
     httplib::Server svr;
 
-    svr.Get("/health", [](const httplib::Request&, httplib::Response& res) 
-    {
+    svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("ok", "text/plain");
     });
 
-    svr.Post("/ingest", [](const httplib::Request& req, httplib::Response& res) 
-    {
+    svr.Post("/ingest", [](const httplib::Request& req, httplib::Response& res) {
         json body = json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.is_object()) {
             res.status = 400;
@@ -50,21 +39,28 @@ int main() {
 
         std::string host = body["host"];
         double cpu = body["cpu_percent"];
-        long ramUsed = body["ram_used_mb"];
-        long ramTotal = body["ram_total_mb"];
+        long long ramUsed = body["ram_used_mb"];
+        long long ramTotal = body["ram_total_mb"];
 
-        if (cpu < 0 || cpu > 100 || ramUsed < 0 || ramTotal <= 0 || ramUsed > ramTotal) {
+        if (host.empty() || host.size() > 255 ||
+            cpu < 0 || cpu > 100 || ramUsed < 0 || ramTotal <= 0 || ramUsed > ramTotal) {
             res.status = 400;
             res.set_content(R"({"error":"values out of range"})", "application/json");
             return;
         }
 
-        std::cout << "metric from " << host << ": cpu=" << cpu
-                  << " ram=" << ramUsed << "/" << ramTotal << "\n";
+        std::string error;
+        if (!saveMetric(host, cpu, ramUsed, ramTotal, error)) {
+            std::cerr << "DB error: " << error << "\n";
+            res.status = 500;
+            res.set_content(R"({"error":"database error"})", "application/json");
+            return;
+        }
 
         res.status = 201;
-        res.set_content(R"({"status":"accepted"})", "application/json");
+        res.set_content(R"({"status":"saved"})", "application/json");
     });
+
     std::cout << "API started on port 8080\n";
     svr.listen("0.0.0.0", 8080);
     return 0;

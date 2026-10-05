@@ -8,7 +8,7 @@ find_package(Threads REQUIRED)
 find_library(HTTPLIB_LIB NAMES cpp-httplib httplib)
 find_library(MYSQL_LIB NAMES mysqlclient REQUIRED)
 
-add_executable(api src/main.cpp)
+add_executable(api src/main.cpp src/db.cpp)
 target_link_libraries(api PRIVATE Threads::Threads ${MYSQL_LIB})
 
 if(HTTPLIB_LIB)
