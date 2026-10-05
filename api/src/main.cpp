@@ -3,10 +3,17 @@
 #include <iostream>
 #include <string>
 #include "db.hpp"
+#include "config.hpp"
 
 using json = nlohmann::json;
 
 int main() {
+
+    if (config().dbPass.empty()) {
+        std::cerr << "DB_PASS is not set. Run: set -a; source ../.env; set +a\n";
+        return 1;
+    }
+
     std::string dbError;
     if (!dbCheck(dbError)) {
         std::cerr << "DB connection failed: " << dbError << "\n";
@@ -115,7 +122,7 @@ int main() {
         res.set_content(R"({"status":"saved"})", "application/json");
     });
 
-    std::cout << "API started on port 8080\n";
-    svr.listen("0.0.0.0", 8080);
+    std::cout << "API started on port " << config().apiPort << "\n";
+    svr.listen("0.0.0.0", config().apiPort);
     return 0;
 }

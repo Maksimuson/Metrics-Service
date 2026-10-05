@@ -1,11 +1,14 @@
 #include "db.hpp"
 #include <mysql/mysql.h>
 #include <cstring>
+#include "config.hpp"
 
 static MYSQL* connectDb(std::string& error) {
+    const Config& c = config();
     MYSQL* conn = mysql_init(nullptr);
-    if (!mysql_real_connect(conn, "127.0.0.1", "app", "apppass",
-                            "metrics", 3306, nullptr, 0)) {
+    if (!mysql_real_connect(conn, c.dbHost.c_str(), c.dbUser.c_str(),
+                            c.dbPass.c_str(), c.dbName.c_str(),
+                            c.dbPort, nullptr, 0)) {
         error = mysql_error(conn);
         mysql_close(conn);
         return nullptr;
