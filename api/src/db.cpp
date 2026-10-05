@@ -49,13 +49,13 @@ bool saveMetric(const std::string& host, double cpu,
     hostBind[0].buffer_length = hostLen;
     hostBind[0].length = &hostLen;
 
-    // 1) создаём хост, если его ещё нет
+    // Insert the host into the hosts table if it doesn't exist
     bool ok = execPrepared(conn,
         "INSERT INTO hosts (name) VALUES (?) "
         "ON DUPLICATE KEY UPDATE name = name",
         hostBind, error);
 
-    // 2) записываем замер
+    // Make sure the host exists and get its ID
     if (ok) {
         MYSQL_BIND b[4];
         std::memset(b, 0, sizeof(b));
@@ -76,3 +76,34 @@ bool saveMetric(const std::string& host, double cpu,
     mysql_close(conn);
     return ok;
 }
+
+bool listHosts(std::vector<std::string>& out, std::string& error) 
+{
+    MYSQL* conn = connectDb(error);
+    if (!conn) return false;
+
+    if (mysql_query(conn, "SELECT name FROM hosts ORDER BY name")!= 0)
+    {
+        error = mysql_error(conn);
+        mysql_close(conn);
+        return false;
+    }
+
+    MYSQL_RES* result = mysql_store_result(conn);
+    if (!result) 
+    {
+        error = mysql_error(conn);
+        mysql_close(conn);
+        return false;
+    }
+
+    MYSQL_ROW row;
+    while ((row = mysql_fetch_row(result)))
+    {
+        out.push_back(row[0]);
+    }
+    mysql_free_result(result);
+    mysql_close(conn);
+    return true;
+}
+    

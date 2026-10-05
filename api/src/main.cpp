@@ -20,6 +20,18 @@ int main() {
         res.set_content("ok", "text/plain");
     });
 
+     svr.Get("/hosts", [](const httplib::Request&, httplib::Response& res) {
+        std::vector<std::string> hosts;
+        std::string error;
+        if (!listHosts(hosts, error)) {
+            std::cerr << "DB error: " << error << "\n";
+            res.status = 500;
+            res.set_content(R"({"error":"database error"})", "application/json");
+            return;
+        }
+        res.set_content(json(hosts).dump(), "application/json");
+    });
+
     svr.Post("/ingest", [](const httplib::Request& req, httplib::Response& res) {
         json body = json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.is_object()) {
