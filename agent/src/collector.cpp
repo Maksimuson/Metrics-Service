@@ -46,3 +46,38 @@ double cpuPercent(const CpuTimes& prev, const CpuTimes& cur)
     return usage;
 }
 
+
+bool parseMemInfo(const std::string& text, MemInfo& out)
+{
+
+    std::istringstream in(text);
+    std::string line;
+    long long totalKb = -1;
+    long long availKb = -1;
+
+    while (std::getline(in, line))
+    {
+        std::istringstream ls(line);
+        std::string key;
+        long long value=0;
+        if(!(ls >> key >> value)) continue;
+
+        if(key=="MemTotal:") totalKb = value;
+        else if(key == "MemAvailable:") availKb = value;
+    }
+
+    if(totalKb <= 0 || availKb < 0 || availKb > totalKb) return false;
+
+    out.totalMb = totalKb / 1024;
+    out.usedMb = (totalKb - availKb) / 1024;
+    return true;
+}
+
+bool readMemInfo(MemInfo& out)
+{
+    std::ifstream f("/proc/meminfo");
+    if(!f) return false;
+
+    std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return parseMemInfo(text, out);
+}
