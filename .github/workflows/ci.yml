@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libcpp-httplib-dev \
+            nlohmann-json3-dev libmysqlclient-dev libgtest-dev
+
+      - name: Build API
+        run: |
+          cmake -S api -B api/build
+          cmake --build api/build
+
+      - name: Build agent with tests
+        run: |
+          cmake -S agent -B agent/build -DBUILD_TESTS=ON
+          cmake --build agent/build
+
+      - name: Run tests
+        run: ctest --test-dir agent/build --output-on-failure
