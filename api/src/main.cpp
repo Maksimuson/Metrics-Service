@@ -8,7 +8,8 @@
 using json = nlohmann::json;
 
 int main() {
-
+    std::cout << std::unitbuf;
+    
     if (config().dbPass.empty()) {
         std::cerr << "DB_PASS is not set. Run: set -a; source ../.env; set +a\n";
         return 1;

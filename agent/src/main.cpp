@@ -20,6 +20,7 @@ static void sleepInterruptible(int seconds) {
 }
 
 int main() {
+    std::cout << std::unitbuf;
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
 
