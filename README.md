@@ -1,8 +1,19 @@
-# Metrics Service
+<h1 align="center">Metrics Service</h1>
 
-![CI](https://github.com/Maksimuson/metrics-service/actions/workflows/ci.yml/badge.svg)
+<p align="center"><b>Measure the host. Send it over HTTP. Query it back.</b></p>
 
-A small system for collecting host metrics (CPU and RAM usage): a C++ agent measures them and sends them over HTTP to a C++ API, which stores them in MySQL.
+<p align="center">
+A tiny self-hosted metrics pipeline written in C++. An agent reads CPU and RAM usage straight from <code>/proc</code>, ships it as JSON to a small HTTP API, and the API keeps everything in MySQL, ready to be queried by host and time range. The whole stack starts with a single <code>docker compose up</code>.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Docker-2496ED?logo=docker&logoColor=white" alt="platform">
+  <img src="https://img.shields.io/badge/agent-C%2B%2B17-00599C?logo=cplusplus&logoColor=white" alt="agent">
+  <img src="https://img.shields.io/badge/api-C%2B%2B%20(httplib)-00599C?logo=cplusplus&logoColor=white" alt="api">
+  <img src="https://img.shields.io/badge/storage-MySQL%208-4479A1?logo=mysql&logoColor=white" alt="storage">
+  <img src="https://img.shields.io/badge/build-CMake-064F8C?logo=cmake&logoColor=white" alt="build">
+  <img src="https://github.com/Maksimuson/metrics-service/actions/workflows/ci.yml/badge.svg" alt="CI">
+</p>
 
 ## Architecture
 
