@@ -1,6 +1,6 @@
 <h1 align="center">Metrics Service</h1>
 
-<p align="center"><b>Measure the host. Send it over HTTP. Query it back.</b></p>
+<p align="center"><b>Measure the host. Send it over HTTP. Query it back</b></p>
 
 <p align="center">
 A tiny self-hosted metrics pipeline written in C++. An agent reads CPU and RAM usage straight from <code>/proc</code>, ships it as JSON to a small HTTP API, and the API keeps everything in MySQL, ready to be queried by host and time range. The whole stack starts with a single <code>docker compose up</code>.
