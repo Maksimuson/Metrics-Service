@@ -5,69 +5,378 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Metrics Dashboard</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f5f6f8; color: #1d2330; }
-    h1 { margin: 0 0 16px; }
-    .bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
-    select { padding: 6px 10px; font-size: 16px; }
-    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-    .card h2 { margin: 0 0 8px; font-size: 18px; }
-    .chart-box { position: relative; height: 260px; }
-    #status { color: #6b7280; font-size: 14px; }
+    :root {
+      --bg: #0e0a1f;
+      --surface: #171230;
+      --surface-2: #1f1840;
+      --line: #2b2352;
+      --text: #ede9ff;
+      --muted: #9a90c4;
+      --accent: #a78bfa;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --crit: #fb7185;
+      --stale: #6f6894;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(900px 420px at 85% -120px, rgba(124, 58, 237, .22), transparent 70%), var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 48px; }
+
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+    .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .muted { color: var(--muted); font-size: 13px; }
+
+    select {
+      appearance: none;
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%239a90c4' stroke-width='2'%3E%3Cpath d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 12px center;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 34px 9px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+    select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    option { background: var(--surface); }
+
+    /* Главная плашка статуса: цвет свечения зависит от состояния */
+    .hero {
+      --c: var(--stale);
+      display: flex; align-items: center; gap: 18px;
+      margin: 22px 0 16px;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background:
+        radial-gradient(520px 140px at 0% 50%, color-mix(in srgb, var(--c) 22%, transparent), transparent 70%),
+        var(--surface);
+      overflow: hidden;
+    }
+    .hero[data-level="ok"]   { --c: var(--ok); }
+    .hero[data-level="warn"] { --c: var(--warn); }
+    .hero[data-level="crit"] { --c: var(--crit); }
+    .dot {
+      position: relative; flex: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--c);
+      box-shadow: 0 0 16px var(--c);
+    }
+    .dot::after {
+      content: ""; position: absolute; inset: 0; border-radius: 50%;
+      border: 2px solid var(--c);
+      animation: ping 2.4s ease-out infinite;
+    }
+    .hero[data-level="stale"] .dot::after { display: none; }
+    @keyframes ping { from { transform: scale(1); opacity: .7; } to { transform: scale(3); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .dot::after { animation: none; } }
+    .hero-title { font-size: 24px; font-weight: 650; letter-spacing: -.015em; }
+    .hero-sub { margin-top: 4px; color: var(--muted); font-size: 14px; }
+
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+      gap: 14px; margin-bottom: 14px;
+    }
+    .tile {
+      --c: var(--stale);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .tile[data-level="ok"]   { --c: var(--ok); }
+    .tile[data-level="warn"] { --c: var(--warn); }
+    .tile[data-level="crit"] { --c: var(--crit); }
+    .tile-label { color: var(--muted); font-size: 13px; }
+    .tile-value {
+      margin: 6px 0 10px;
+      font-size: 32px; font-weight: 650; letter-spacing: -.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .meter { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+    .meter span {
+      display: block; height: 100%; width: 0; border-radius: 99px;
+      background: var(--c);
+      transition: width .6s ease, background .3s;
+    }
+    .tile-text { margin-top: 10px; font-size: 14px; }
+    .tile-detail { margin-top: 2px; font-size: 13px; color: var(--muted); }
+
+    .pair {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 9px 0; border-bottom: 1px solid var(--line);
+    }
+    .pair:last-child { border-bottom: 0; padding-bottom: 0; }
+    .pair span { color: var(--muted); font-size: 14px; }
+    .pair b { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+      gap: 14px;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px 12px;
+    }
+    .panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .panel h2 { margin: 0; font-size: 16px; font-weight: 650; }
+    .chart-box { position: relative; height: 250px; }
   </style>
 </head>
 <body>
-  <h1>Metrics Dashboard</h1>
-  <div class="bar">
-    <label for="host">Host:</label>
-    <select id="host"></select>
-    <span id="status"></span>
-  </div>
+  <div class="wrap">
+    <header>
+      <h1>Metrics Dashboard</h1>
+      <div class="controls">
+        <span class="muted" id="updated"></span>
+        <select id="host" aria-label="Host"></select>
+      </div>
+    </header>
 
-  <div class="card">
-    <h2>CPU usage, %</h2>
-    <div class="chart-box"><canvas id="cpuChart"></canvas></div>
-  </div>
-  <div class="card">
-    <h2>RAM used, MB</h2>
-    <div class="chart-box"><canvas id="ramChart"></canvas></div>
+    <section class="hero" id="hero" data-level="stale">
+      <div class="dot"></div>
+      <div>
+        <div class="hero-title" id="heroTitle">Loading</div>
+        <div class="hero-sub" id="heroSub"></div>
+      </div>
+    </section>
+
+    <section class="tiles">
+      <div class="tile" id="cpuTile" data-level="stale">
+        <div class="tile-label">CPU now</div>
+        <div class="tile-value" id="cpuValue">-</div>
+        <div class="meter"><span id="cpuBar"></span></div>
+        <div class="tile-text" id="cpuText"></div>
+        <div class="tile-detail">Average across all cores</div>
+      </div>
+      <div class="tile" id="ramTile" data-level="stale">
+        <div class="tile-label">RAM now</div>
+        <div class="tile-value" id="ramValue">-</div>
+        <div class="meter"><span id="ramBar"></span></div>
+        <div class="tile-text" id="ramText"></div>
+        <div class="tile-detail" id="ramDetail"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Average over the shown period</div>
+        <div class="pair"><span>CPU</span><b id="avgCpu">-</b></div>
+        <div class="pair"><span>RAM</span><b id="avgRam">-</b></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Peak over the shown period</div>
+        <div class="pair"><span>CPU</span><b id="peakCpu">-</b></div>
+        <div class="pair"><span>RAM</span><b id="peakRam">-</b></div>
+      </div>
+    </section>
+
+    <section class="charts">
+      <div class="panel">
+        <div class="panel-head"><h2>CPU usage</h2><span class="muted">percent</span></div>
+        <div class="chart-box"><canvas id="cpuChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>RAM used</h2><span class="muted">megabytes</span></div>
+        <div class="chart-box"><canvas id="ramChart"></canvas></div>
+      </div>
+    </section>
   </div>
 
   <script src="chart.umd.js"></script>
   <script>
     const REFRESH_MS = 5000;
     const POINTS = 60;
+    const STALE_SEC = 30;
 
-    const hostSelect = document.getElementById("host");
-    const statusEl = document.getElementById("status");
+    // Пороги статусов, в процентах
+    const CPU_WARN = 60, CPU_CRIT = 85;
+    const RAM_WARN = 70, RAM_CRIT = 90;
 
-    function makeChart(canvasId, label, color) {
-      return new Chart(document.getElementById(canvasId), {
+    const CPU_TEXT = {
+      ok: "All calm - the processor is mostly idle",
+      warn: "Busy - the processor is working hard",
+      crit: "Overloaded - check what is running"
+    };
+    const RAM_TEXT = {
+      ok: "Plenty of free memory",
+      warn: "Memory is getting tight",
+      crit: "Almost out of memory - programs may slow down or crash"
+    };
+    const OVERALL_TEXT = {
+      ok: "Everything looks healthy",
+      warn: "The system is under load",
+      crit: "The system is overloaded"
+    };
+
+    const $ = id => document.getElementById(id);
+    const hostSelect = $("host");
+
+    const ramPct = r => (r.ram_used_mb / r.ram_total_mb) * 100;
+
+    function level(value, warn, crit) {
+      return value >= crit ? "crit" : value >= warn ? "warn" : "ok";
+    }
+    function worst(a, b) {
+      const order = { ok: 0, warn: 1, crit: 2 };
+      return order[a] >= order[b] ? a : b;
+    }
+    function setLevel(id, lvl) { $(id).dataset.level = lvl || "stale"; }
+    function setBar(id, pct) { $(id).style.width = Math.max(0, Math.min(100, pct)) + "%"; }
+
+    // Время в базе хранится в UTC
+    function parseTs(ts) { return new Date(ts.replace(" ", "T") + "Z"); }
+    function toTime(ts) {
+      return parseTs(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+    function fmtAge(s) {
+      if (s < 120) return Math.round(s) + " s";
+      if (s < 7200) return Math.round(s / 60) + " min";
+      return Math.round(s / 3600) + " h";
+    }
+
+    // ---------- графики ----------
+    Chart.defaults.color = "#9a90c4";
+    Chart.defaults.font.family = '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
+    Chart.defaults.font.size = 12;
+
+    function fill(color) {
+      return function (context) {
+        const area = context.chart.chartArea;
+        if (!area) return color + "33";
+        const g = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+        g.addColorStop(0, color + "55");
+        g.addColorStop(1, color + "00");
+        return g;
+      };
+    }
+
+    function makeChart(canvasId, color, isPercent) {
+      return new Chart($(canvasId), {
         type: "line",
         data: {
           labels: [],
           datasets: [{
-            label: label, data: [], borderColor: color,
-            backgroundColor: color + "33", fill: true,
-            tension: 0.25, pointRadius: 0, borderWidth: 2
+            data: [],
+            borderColor: color,
+            backgroundColor: fill(color),
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2.5,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: color,
+            pointHoverBorderColor: "#0e0a1f",
+            pointHoverBorderWidth: 2
           }]
         },
         options: {
-          responsive: true, maintainAspectRatio: false, animation: false,
-          plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true } }
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              displayColors: false,
+              backgroundColor: "#0e0a1f",
+              borderColor: "#2b2352",
+              borderWidth: 1,
+              padding: 10,
+              titleColor: "#ede9ff",
+              bodyColor: "#ede9ff",
+              callbacks: {
+                label: c => isPercent ? c.parsed.y.toFixed(1) + "%" : c.parsed.y + " MB"
+              }
+            }
+          },
+          scales: {
+            x: { grid: { display: false }, border: { display: false },
+                 ticks: { maxTicksLimit: 6, maxRotation: 0 } },
+            y: { beginAtZero: true, grid: { display: false }, border: { display: false },
+                 ticks: { maxTicksLimit: 5, callback: v => isPercent ? v + "%" : v } }
+          }
         }
       });
     }
 
-    const cpuChart = makeChart("cpuChart", "CPU %", "#2563eb");
+    const cpuChart = makeChart("cpuChart", "#a78bfa", true);
     cpuChart.options.scales.y.max = 100;
-    const ramChart = makeChart("ramChart", "RAM MB", "#16a34a");
+    const ramChart = makeChart("ramChart", "#f472b6", false);
 
-    // Время в базе хранится в UTC, показываем в местном
-    function toTime(ts) {
-      return new Date(ts.replace(" ", "T") + "Z").toLocaleTimeString();
+    // ---------- карточки и статусы ----------
+    function showNoData(title, sub) {
+      $("heroTitle").textContent = title;
+      $("heroSub").textContent = sub;
+      setLevel("hero", null);
+      setLevel("cpuTile", null);
+      setLevel("ramTile", null);
+      $("cpuValue").textContent = "-";
+      $("ramValue").textContent = "-";
+      $("cpuText").textContent = "";
+      $("ramText").textContent = "";
+      $("ramDetail").textContent = "";
+      setBar("cpuBar", 0);
+      setBar("ramBar", 0);
     }
 
+    function setStats(rows) {
+      const ids = ["avgCpu", "avgRam", "peakCpu", "peakRam"];
+      if (!rows.length) { ids.forEach(id => $(id).textContent = "-"); return; }
+      const cpu = rows.map(r => r.cpu_percent);
+      const ram = rows.map(ramPct);
+      const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+      $("avgCpu").textContent = avg(cpu).toFixed(1) + "%";
+      $("avgRam").textContent = avg(ram).toFixed(0) + "%";
+      $("peakCpu").textContent = Math.max(...cpu).toFixed(1) + "%";
+      $("peakRam").textContent = Math.max(...ram).toFixed(0) + "%";
+    }
+
+    function updateSummary(rows, host) {
+      setStats(rows);
+      if (!rows.length) {
+        showNoData("No data yet", host + " has not sent any measurements.");
+        return;
+      }
+
+      const last = rows[rows.length - 1];
+      const ageSec = Math.max(0, (Date.now() - parseTs(last.ts).getTime()) / 1000);
+
+      if (ageSec > STALE_SEC) {
+        showNoData("No fresh data", host + " has been silent for " + fmtAge(ageSec) + ". Is the agent running?");
+        return;
+      }
+
+      const cpuLvl = level(last.cpu_percent, CPU_WARN, CPU_CRIT);
+      const ramLvl = level(ramPct(last), RAM_WARN, RAM_CRIT);
+      const total = worst(cpuLvl, ramLvl);
+
+      $("cpuValue").textContent = last.cpu_percent.toFixed(1) + "%";
+      $("cpuText").textContent = CPU_TEXT[cpuLvl];
+      setBar("cpuBar", last.cpu_percent);
+      setLevel("cpuTile", cpuLvl);
+
+      $("ramValue").textContent = ramPct(last).toFixed(0) + "%";
+      $("ramText").textContent = RAM_TEXT[ramLvl];
+      $("ramDetail").textContent = last.ram_used_mb + " of " + last.ram_total_mb + " MB used";
+      setBar("ramBar", ramPct(last));
+      setLevel("ramTile", ramLvl);
+
+      $("heroTitle").textContent = OVERALL_TEXT[total];
+      $("heroSub").textContent = host + " reported " + fmtAge(ageSec) + " ago";
+      setLevel("hero", total);
+    }
+
+    // ---------- загрузка данных ----------
     async function loadHosts() {
       const r = await fetch("/hosts");
       const hosts = await r.json();
@@ -100,10 +409,10 @@
         cpuChart.update();
         ramChart.update();
 
-        statusEl.textContent = "Updated " + new Date().toLocaleTimeString() +
-                               " - " + rows.length + " points";
+        updateSummary(rows, host);
+        $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
       } catch (e) {
-        statusEl.textContent = "Cannot load data: " + e.message;
+        $("updated").textContent = "Cannot load data: " + e.message;
       }
     }
 
