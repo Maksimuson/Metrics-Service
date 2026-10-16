@@ -15,117 +15,187 @@ A tiny self-hosted metrics pipeline written in C++. An agent reads CPU and RAM u
   <img src="https://github.com/Maksimuson/metrics-service/actions/workflows/ci.yml/badge.svg" alt="CI">
 </p>
 
+<p align="center">
+  <img src="docs/dashboard.gif" alt="Metrics Dashboard" width="800">
+</p>
+
+## Features
+
+- Collects CPU usage (in percent) and memory usage (used / total, MB) every N seconds
+- Accepts measurements over HTTP (`POST /ingest`) with input validation
+- Stores data in MySQL 8, indexed by host and time
+- Queries measurements by host and time range
+- Web dashboard at `http://localhost:8080/` with a chart per host
+- Unit tests for `/proc` parsing and CPU usage calculation, run in GitHub Actions
+
 ## Architecture
 
 ```
-+---------+   POST /ingest   +---------+    SQL     +---------+
-|  agent  | ---------------> |   api   | ---------> |  MySQL  |
-| (C++)   |      (JSON)      | (C++)   |            |         |
-+---------+                  +---------+            +---------+
++---------+   POST /ingest   +---------+     SQL     +---------+
+|  agent  | ---------------> |   api   | ----------> |  MySQL  |
+| (C++)   |      (JSON)      | (C++)   |             |    8    |
++---------+                  +---------+             +---------+
  reads /proc                  GET /hosts
                               GET /metrics
+                              GET /  (dashboard)
 ```
 
-- **agent** reads `/proc/stat` and `/proc/meminfo` every few seconds and sends the values to the API
-- **api** validates incoming data, stores it in MySQL and serves it back
-- **mysql** keeps two tables: `hosts` and `metrics`
+- **agent** reads `/proc/stat` and `/proc/meminfo` and sends the values to the API.
+- **api** validates the data, stores it in MySQL, serves it back, and hosts the dashboard from the `web/` folder.
+- **mysql** keeps two tables: `hosts` (host names) and `metrics` (measurements).
 
 ## Tech stack
 
-C++17, CMake, cpp-httplib, nlohmann/json, MySQL client library, MySQL 8, Docker Compose, GoogleTest, GitHub Actions.
+C++17, CMake, cpp-httplib, nlohmann/json, MySQL Client Library, MySQL 8, Docker Compose, GoogleTest, GitHub Actions.
 
 ## Quick start
 
-Requires Docker with Docker Compose.
+Requires Docker and Docker Compose.
 
-```
-git clone https://github.com/YOUR_USERNAME/metrics-service.git
-cd metrics-service
+```bash
+git clone https://github.com/Maksimuson/Metrics-Service.git
+cd Metrics-Service
 cp .env.example .env      # then set your own passwords in .env
 docker compose up -d --build
 ```
 
 After a few seconds the agent starts sending metrics:
 
-```
+```bash
 docker compose logs -f agent
 curl "localhost:8080/metrics?host=docker-agent&limit=3"
 ```
 
-Stop everything with `docker compose down` (add `-v` to also delete the stored data).
+Open the dashboard in your browser: <http://localhost:8080/>
+
+Stop everything with `docker compose down`. Add `-v` to also delete the stored data.
+
+## Configuration
+
+All settings come from environment variables. The template is in `.env.example`.
+
+| Variable | Used by | Default | Description |
+|----------|---------|---------|-------------|
+| `DB_HOST` | api | `127.0.0.1` | MySQL host |
+| `DB_PORT` | api | `3306` | MySQL port |
+| `DB_USER` | api | `app` | MySQL user |
+| `DB_PASS` | api | none (required) | MySQL password |
+| `DB_NAME` | api | `metrics` | Database name |
+| `PORT` | api | `8080` | HTTP API port |
+| `API_HOST` | agent | `127.0.0.1` | API address |
+| `API_PORT` | agent | `8080` | API port |
+| `INTERVAL_SEC` | agent | `5` | Sending interval, in seconds |
+| `HOST_NAME` | agent | system host name | Host name the metrics are stored under |
+
+`docker-compose.yml` also uses `DB_ROOT_PASS` and `DB_PORT` (the MySQL port on the host machine).
 
 ## API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Liveness check, returns `ok` |
+| GET | `/health` | Health check, returns `ok` |
 | POST | `/ingest` | Store one measurement |
-| GET | `/hosts` | List of known host names |
+| GET | `/hosts` | List of host names |
 | GET | `/metrics` | Measurements of one host, newest first |
+| GET | `/` | Web dashboard |
 
 ### POST /ingest
 
-```
+```bash
 curl -X POST localhost:8080/ingest \
   -H "Content-Type: application/json" \
   -d '{"host":"srv1","cpu_percent":12.5,"ram_used_mb":2048,"ram_total_mb":8192}'
 ```
 
-Returns `201` on success and `400` if the JSON is invalid, a field is missing or a value is out of range (CPU must be 0-100, used RAM must not exceed total RAM).
+Responses:
+
+- `201`: measurement saved (`{"status":"saved"}`)
+- `400`: invalid JSON, a missing field or wrong type, or values out of range: `cpu_percent` must be between 0 and 100, `ram_used_mb` must not exceed `ram_total_mb`, host name must be 1 to 255 characters
+- `500`: database error
 
 ### GET /metrics
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `host` | yes | Host name |
-| `from`, `to` | no | Time range, format `2026-10-04 10:00:00` (UTC) |
-| `limit` | no | Max rows, default 100, maximum 1000 |
+| `from`, `to` | no | Time range in the format `2026-10-04 10:00:00` (UTC) |
+| `limit` | no | Maximum rows: default 100, maximum 1000 |
 
-## Configuration
+Example response:
 
-All settings come from environment variables (see `.env.example`).
-
-| Variable | Used by | Default |
-|----------|---------|---------|
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME` | api | `127.0.0.1`, `3306`, `app`, none (required), `metrics` |
-| `PORT` | api | `8080` |
-| `API_HOST`, `API_PORT` | agent | `127.0.0.1`, `8080` |
-| `INTERVAL_SEC` | agent | `5` |
-| `HOST_NAME` | agent | system host name |
-
-## Development
-
-Build and run without Docker (Linux):
-
+```json
+[
+  {"ts": "2026-10-04 10:00:05", "cpu_percent": 12.5, "ram_used_mb": 2048, "ram_total_mb": 8192}
+]
 ```
+
+## Local development without Docker
+
+Requires Linux. Dependencies on Ubuntu/Debian:
+
+```bash
 sudo apt install build-essential cmake libcpp-httplib-dev \
   nlohmann-json3-dev libmysqlclient-dev libgtest-dev
+```
 
+Build:
+
+```bash
 cmake -S api -B api/build && cmake --build api/build
 cmake -S agent -B agent/build -DBUILD_TESTS=ON && cmake --build agent/build
 ```
 
-Run the unit tests:
+Running the API needs environment variables with access to MySQL. For example, if `.env` is in the project root:
 
+```bash
+cd api
+set -a; source ../.env; set +a
+./build/api
 ```
+
+Run the tests:
+
+```bash
 ./agent/build/test_collector
 ```
 
-Tests cover the parsing of `/proc/stat` and `/proc/meminfo` and the CPU usage calculation. The same build and tests run on every push in GitHub Actions.
+The tests cover parsing of `/proc/stat` and `/proc/meminfo` and the CPU usage calculation.
 
 ## Project structure
 
 ```
 metrics-service/
-├── agent/          C++ agent (collector, sender, tests)
-├── api/            C++ HTTP API (routes, MySQL access)
-├── db/init.sql     Database schema
+├── agent/                 C++ agent: metrics collection and sending
+│   ├── src/               collector, sender, config, main
+│   ├── tests/             unit tests (GoogleTest)
+│   ├── CMakeLists.txt
+│   └── Dockerfile
+├── api/                   C++ HTTP API
+│   ├── src/               routes (main), MySQL access (db), config
+│   ├── web/               web dashboard (index.html, chart.umd.js)
+│   ├── CMakeLists.txt
+│   └── Dockerfile
+├── docs/
+│   ├── dashboard.gif      dashboard animation for the README
+│   └── dashboard.png      original screenshot
+├── db/
+│   ├── init.sql           database schema (created on the first MySQL start)
+│   └── playground.sql     sample queries for manual checks
+├── .github/workflows/ci.yml   build and tests on push and pull request
 ├── docker-compose.yml
-├── .env.example
-└── .github/workflows/ci.yml
+└── .env.example
 ```
 
-## Notes
+## Limitations
 
-- The agent measures the system it runs in. Inside a container this is the Docker virtual machine, not necessarily the physical host.
-- Timestamps are set by the API when the data is received and stored in UTC.
+- The `/ingest` endpoint has no authentication, so the service is meant for an internal network. Add token checks or close the port before exposing it.
+- The agent measures the system it runs in. Inside a Docker container this is the Docker VM (WSL or the Linux VM), not the physical host.
+- The API sets timestamps when data is received, and they are stored in UTC.
+- Each request opens a new MySQL connection. This is fine for a learning project, but under load a connection pool should be added.
+
+## Possible improvements
+
+- Authentication for `/ingest` (API key or token)
+- MySQL connection pool
+- More metrics: disk, network, per-process load
+- Scheduled cleanup of old data (retention)

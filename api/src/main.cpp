@@ -23,6 +23,9 @@ int main() {
     std::cout << "Connected to MySQL\n";
 
     httplib::Server svr;
+        if (!svr.set_mount_point("/", "./web")) {
+        std::cerr << "Warning: ./web not found, dashboard disabled\n";
+    }
 
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("ok", "text/plain");

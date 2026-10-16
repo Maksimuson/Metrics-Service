@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY CMakeLists.txt .
 COPY src ./src
+COPY web ./web
 RUN cmake -S . -B build && cmake --build build
 
 CMD ["./build/api"]
