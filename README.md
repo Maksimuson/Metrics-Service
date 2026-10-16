@@ -3,7 +3,7 @@
 <p align="center"><b>Measure the host. Send it over HTTP. Query it back</b></p>
 
 <p align="center">
-A tiny self-hosted metrics pipeline written in C++. An agent reads CPU and RAM usage straight from <code>/proc</code>, ships it as JSON to a small HTTP API, and the API keeps everything in MySQL, ready to be queried by host and time range. The whole stack starts with a single <code>docker compose up</code>.
+Простой self-hosted сервис мониторинга на C++: агент читает загрузку CPU и RAM из <code>/proc</code>, отправляет её по HTTP в API, а API сохраняет данные в MySQL. Есть веб-дашборд с графиком по каждому хосту. Весь стек запускается одной командой <code>docker compose up</code>.
 </p>
 
 <p align="center">
@@ -15,117 +15,187 @@ A tiny self-hosted metrics pipeline written in C++. An agent reads CPU and RAM u
   <img src="https://github.com/Maksimuson/metrics-service/actions/workflows/ci.yml/badge.svg" alt="CI">
 </p>
 
-## Architecture
+<p align="center">
+  <img src="docs/dashboard.gif" alt="Metrics Dashboard" width="800">
+</p>
+
+## Возможности
+
+- Сбор метрик CPU (в процентах) и памяти (использовано / всего, МБ) каждые N секунд
+- Приём измерений по HTTP (`POST /ingest`) с валидацией входных данных
+- Хранение в MySQL 8 с индексом по хосту и времени
+- Выборка измерений по хосту и диапазону времени
+- Веб-дашборд, который открывается в браузере по адресу `http://localhost:8080/`
+- Unit-тесты парсинга `/proc` и расчёта загрузки CPU, запускаются в GitHub Actions
+
+## Архитектура
 
 ```
-+---------+   POST /ingest   +---------+    SQL     +---------+
-|  agent  | ---------------> |   api   | ---------> |  MySQL  |
-| (C++)   |      (JSON)      | (C++)   |            |         |
-+---------+                  +---------+            +---------+
- reads /proc                  GET /hosts
++---------+   POST /ingest   +---------+     SQL     +---------+
+|  agent  | ---------------> |   api   | ----------> |  MySQL  |
+| (C++)   |      (JSON)      | (C++)   |             |    8    |
++---------+                  +---------+             +---------+
+ читает /proc                 GET /hosts
                               GET /metrics
+                              GET /  (дашборд)
 ```
 
-- **agent** reads `/proc/stat` and `/proc/meminfo` every few seconds and sends the values to the API
-- **api** validates incoming data, stores it in MySQL and serves it back
-- **mysql** keeps two tables: `hosts` and `metrics`
+- **agent** читает `/proc/stat` и `/proc/meminfo` и отправляет значения в API.
+- **api** проверяет данные, пишет их в MySQL и отдаёт обратно, а также раздаёт дашборд из папки `web/`.
+- **mysql** хранит данные в двух таблицах: `hosts` (имена хостов) и `metrics` (измерения).
 
-## Tech stack
+## Стек
 
-C++17, CMake, cpp-httplib, nlohmann/json, MySQL client library, MySQL 8, Docker Compose, GoogleTest, GitHub Actions.
+C++17, CMake, cpp-httplib, nlohmann/json, MySQL Client Library, MySQL 8, Docker Compose, GoogleTest, GitHub Actions.
 
-## Quick start
+## Быстрый старт
 
-Requires Docker with Docker Compose.
+Нужны Docker и Docker Compose.
 
-```
-git clone https://github.com/YOUR_USERNAME/metrics-service.git
-cd metrics-service
-cp .env.example .env      # then set your own passwords in .env
+```bash
+git clone https://github.com/Maksimuson/Metrics-Service.git
+cd Metrics-Service
+cp .env.example .env      # затем задайте свои пароли в .env
 docker compose up -d --build
 ```
 
-After a few seconds the agent starts sending metrics:
+Через несколько секунд агент начнёт отправлять данные:
 
-```
+```bash
 docker compose logs -f agent
 curl "localhost:8080/metrics?host=docker-agent&limit=3"
 ```
 
-Stop everything with `docker compose down` (add `-v` to also delete the stored data).
+Дашборд открывается в браузере: <http://localhost:8080/>
+
+Остановить стек: `docker compose down`. Чтобы также удалить сохранённые данные, добавьте `-v`.
+
+## Конфигурация
+
+Все настройки задаются через переменные окружения. Шаблон лежит в `.env.example`.
+
+| Переменная | Для кого | По умолчанию | Описание |
+|------------|----------|--------------|----------|
+| `DB_HOST` | api | `127.0.0.1` | Адрес MySQL |
+| `DB_PORT` | api | `3306` | Порт MySQL |
+| `DB_USER` | api | `app` | Пользователь MySQL |
+| `DB_PASS` | api | — (обязательна) | Пароль MySQL |
+| `DB_NAME` | api | `metrics` | Имя базы данных |
+| `PORT` | api | `8080` | Порт HTTP API |
+| `API_HOST` | agent | `127.0.0.1` | Адрес API |
+| `API_PORT` | agent | `8080` | Порт API |
+| `INTERVAL_SEC` | agent | `5` | Интервал отправки, секунд |
+| `HOST_NAME` | agent | имя системы | Имя хоста, под которым сохраняются метрики |
+
+В `docker-compose.yml` также используются переменные `DB_ROOT_PASS` и `DB_PORT` (порт MySQL на хост-машине).
 
 ## API
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Liveness check, returns `ok` |
-| POST | `/ingest` | Store one measurement |
-| GET | `/hosts` | List of known host names |
-| GET | `/metrics` | Measurements of one host, newest first |
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/health` | Проверка работоспособности, отвечает `ok` |
+| POST | `/ingest` | Сохранить одно измерение |
+| GET | `/hosts` | Список имён хостов |
+| GET | `/metrics` | Измерения одного хоста, от новых к старым |
+| GET | `/` | Веб-дашборд |
 
 ### POST /ingest
 
-```
+```bash
 curl -X POST localhost:8080/ingest \
   -H "Content-Type: application/json" \
   -d '{"host":"srv1","cpu_percent":12.5,"ram_used_mb":2048,"ram_total_mb":8192}'
 ```
 
-Returns `201` on success and `400` if the JSON is invalid, a field is missing or a value is out of range (CPU must be 0-100, used RAM must not exceed total RAM).
+Ответы:
+
+- `201` — измерение сохранено (`{"status":"saved"}`)
+- `400` — невалидный JSON, отсутствует поле или неверный тип, либо значения вне диапазона: `cpu_percent` от 0 до 100, `ram_used_mb` не больше `ram_total_mb`, имя хоста от 1 до 255 символов
+- `500` — ошибка базы данных
 
 ### GET /metrics
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `host` | yes | Host name |
-| `from`, `to` | no | Time range, format `2026-10-04 10:00:00` (UTC) |
-| `limit` | no | Max rows, default 100, maximum 1000 |
+| Параметр | Обязательный | Описание |
+|----------|--------------|----------|
+| `host` | да | Имя хоста |
+| `from`, `to` | нет | Диапазон времени в формате `2026-10-04 10:00:00` (UTC) |
+| `limit` | нет | Максимум строк: по умолчанию 100, максимум 1000 |
 
-## Configuration
+Пример ответа:
 
-All settings come from environment variables (see `.env.example`).
-
-| Variable | Used by | Default |
-|----------|---------|---------|
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME` | api | `127.0.0.1`, `3306`, `app`, none (required), `metrics` |
-| `PORT` | api | `8080` |
-| `API_HOST`, `API_PORT` | agent | `127.0.0.1`, `8080` |
-| `INTERVAL_SEC` | agent | `5` |
-| `HOST_NAME` | agent | system host name |
-
-## Development
-
-Build and run without Docker (Linux):
-
+```json
+[
+  {"ts": "2026-10-04 10:00:05", "cpu_percent": 12.5, "ram_used_mb": 2048, "ram_total_mb": 8192}
+]
 ```
+
+## Локальная разработка без Docker
+
+Нужен Linux. Установка зависимостей на Ubuntu/Debian:
+
+```bash
 sudo apt install build-essential cmake libcpp-httplib-dev \
   nlohmann-json3-dev libmysqlclient-dev libgtest-dev
+```
 
+Сборка:
+
+```bash
 cmake -S api -B api/build && cmake --build api/build
 cmake -S agent -B agent/build -DBUILD_TESTS=ON && cmake --build agent/build
 ```
 
-Run the unit tests:
+Запуск API требует переменных окружения с доступом к MySQL. Например, если `.env` лежит в корне проекта:
 
+```bash
+cd api
+set -a; source ../.env; set +a
+./build/api
 ```
+
+Запуск тестов:
+
+```bash
 ./agent/build/test_collector
 ```
 
-Tests cover the parsing of `/proc/stat` and `/proc/meminfo` and the CPU usage calculation. The same build and tests run on every push in GitHub Actions.
+Тесты покрывают парсинг `/proc/stat` и `/proc/meminfo` и расчёт загрузки CPU.
 
-## Project structure
+## Структура проекта
 
 ```
 metrics-service/
-├── agent/          C++ agent (collector, sender, tests)
-├── api/            C++ HTTP API (routes, MySQL access)
-├── db/init.sql     Database schema
+├── agent/                 C++ агент: сбор метрик и отправка в API
+│   ├── src/               collector, sender, config, main
+│   ├── tests/             unit-тесты (GoogleTest)
+│   ├── CMakeLists.txt
+│   └── Dockerfile
+├── api/                   C++ HTTP API
+│   ├── src/               маршруты (main), работа с MySQL (db), конфигурация
+│   ├── web/               веб-дашборд (index.html, chart.umd.js)
+│   ├── CMakeLists.txt
+│   └── Dockerfile
+├── docs/
+│   ├── dashboard.gif      анимация дашборда для README
+│   └── dashboard.png      исходный скриншот
+├── db/
+│   ├── init.sql           схема базы данных (создаётся при первом запуске MySQL)
+│   └── playground.sql     примеры запросов для ручной проверки
+├── .github/workflows/ci.yml   сборка и тесты при push и pull request
 ├── docker-compose.yml
-├── .env.example
-└── .github/workflows/ci.yml
+└── .env.example
 ```
 
-## Notes
+## Ограничения
 
-- The agent measures the system it runs in. Inside a container this is the Docker virtual machine, not necessarily the physical host.
-- Timestamps are set by the API when the data is received and stored in UTC.
+- Эндпоинт `/ingest` не требует авторизации, поэтому сервис рассчитан на использование во внутренней сети. Перед открытием наружу добавьте проверку токена или закройте порт.
+- Агент измеряет систему, в которой запущен. В Docker-контейнере это виртуальная машина Docker (WSL или Linux-VM), а не физический хост.
+- Метки времени ставит API в момент получения данных, хранятся они в UTC.
+- Для каждого запроса в API открывается новое соединение с MySQL. Для учебного проекта это приемлемо, но под нагрузкой стоит добавить пул соединений.
+
+## Что можно доработать
+
+- Авторизация для `/ingest` (API-ключ или токен)
+- Пул соединений с MySQL
+- Больше метрик: диск, сеть, загрузка по процессам
+- Очистка старых данных по расписанию (retention)
