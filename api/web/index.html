@@ -2,24 +2,114 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Metrics Dashboard</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f5f6f8; color: #1d2330; }
+    h1 { margin: 0 0 16px; }
+    .bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+    select { padding: 6px 10px; font-size: 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .card h2 { margin: 0 0 8px; font-size: 18px; }
+    .chart-box { position: relative; height: 260px; }
+    #status { color: #6b7280; font-size: 14px; }
+  </style>
 </head>
 <body>
   <h1>Metrics Dashboard</h1>
-  <p>Known hosts:</p>
-  <ul id="hosts"></ul>
+  <div class="bar">
+    <label for="host">Host:</label>
+    <select id="host"></select>
+    <span id="status"></span>
+  </div>
 
+  <div class="card">
+    <h2>CPU usage, %</h2>
+    <div class="chart-box"><canvas id="cpuChart"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>RAM used, MB</h2>
+    <div class="chart-box"><canvas id="ramChart"></canvas></div>
+  </div>
+
+  <script src="chart.umd.js"></script>
   <script>
-    fetch("/hosts")
-      .then(r => r.json())
-      .then(hosts => {
-        const list = document.getElementById("hosts");
-        hosts.forEach(h => {
-          const li = document.createElement("li");
-          li.textContent = h;
-          list.appendChild(li);
-        });
+    const REFRESH_MS = 5000;
+    const POINTS = 60;
+
+    const hostSelect = document.getElementById("host");
+    const statusEl = document.getElementById("status");
+
+    function makeChart(canvasId, label, color) {
+      return new Chart(document.getElementById(canvasId), {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [{
+            label: label, data: [], borderColor: color,
+            backgroundColor: color + "33", fill: true,
+            tension: 0.25, pointRadius: 0, borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } }
+        }
       });
+    }
+
+    const cpuChart = makeChart("cpuChart", "CPU %", "#2563eb");
+    cpuChart.options.scales.y.max = 100;
+    const ramChart = makeChart("ramChart", "RAM MB", "#16a34a");
+
+    // Время в базе хранится в UTC, показываем в местном
+    function toTime(ts) {
+      return new Date(ts.replace(" ", "T") + "Z").toLocaleTimeString();
+    }
+
+    async function loadHosts() {
+      const r = await fetch("/hosts");
+      const hosts = await r.json();
+      hostSelect.innerHTML = "";
+      hosts.forEach(h => {
+        const o = document.createElement("option");
+        o.value = h;
+        o.textContent = h;
+        hostSelect.appendChild(o);
+      });
+      if (hosts.includes("docker-agent")) hostSelect.value = "docker-agent";
+    }
+
+    async function loadMetrics() {
+      const host = hostSelect.value;
+      if (!host) return;
+      try {
+        const r = await fetch("/metrics?host=" + encodeURIComponent(host) + "&limit=" + POINTS);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const rows = (await r.json()).reverse();   // API отдаёт новые первыми
+
+        const labels = rows.map(m => toTime(m.ts));
+        cpuChart.data.labels = labels;
+        cpuChart.data.datasets[0].data = rows.map(m => m.cpu_percent);
+        ramChart.data.labels = labels;
+        ramChart.data.datasets[0].data = rows.map(m => m.ram_used_mb);
+        if (rows.length) {
+          ramChart.options.scales.y.max = rows[rows.length - 1].ram_total_mb;
+        }
+        cpuChart.update();
+        ramChart.update();
+
+        statusEl.textContent = "Updated " + new Date().toLocaleTimeString() +
+                               " - " + rows.length + " points";
+      } catch (e) {
+        statusEl.textContent = "Cannot load data: " + e.message;
+      }
+    }
+
+    hostSelect.addEventListener("change", loadMetrics);
+    loadHosts().then(loadMetrics);
+    setInterval(loadMetrics, REFRESH_MS);
   </script>
 </body>
 </html>
