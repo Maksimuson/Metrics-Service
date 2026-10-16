@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Metrics Dashboard</title>
+</head>
+<body>
+  <h1>Metrics Dashboard</h1>
+  <p>Known hosts:</p>
+  <ul id="hosts"></ul>
+
+  <script>
+    fetch("/hosts")
+      .then(r => r.json())
+      .then(hosts => {
+        const list = document.getElementById("hosts");
+        hosts.forEach(h => {
+          const li = document.createElement("li");
+          li.textContent = h;
+          list.appendChild(li);
+        });
+      });
+  </script>
+</body>
+</html>
